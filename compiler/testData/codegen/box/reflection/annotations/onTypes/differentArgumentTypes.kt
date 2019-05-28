@@ -30,7 +30,7 @@ annotation class Anno(
     val e: AnnotationTarget,
     val a: Nested,
     val stra: Array<String>,
-    // val ka: Array<KClass<*>>,  // Arrays of class literals are not supported yet in AnnotationDeserializer
+    val ka: Array<KClass<*>>,
     val ea: Array<AnnotationTarget>,
     val aa: Array<Nested>
 )
@@ -58,7 +58,7 @@ fun f(): @Anno(
     AnnotationTarget.EXPRESSION,
     Nested("1"),
     ["lmao"],
-    // [Double::class, Unit::class, LongArray::class],
+    [Double::class, Unit::class, LongArray::class],
     [AnnotationTarget.TYPEALIAS, AnnotationTarget.FIELD],
     [Nested("2"), Nested("3")]
 ) Unit {}

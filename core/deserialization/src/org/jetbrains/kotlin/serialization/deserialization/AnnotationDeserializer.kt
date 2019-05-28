@@ -141,7 +141,7 @@ class AnnotationDeserializer(private val module: ModuleDescriptor, private val n
                 Type.DOUBLE -> doubleType
                 Type.BOOLEAN -> booleanType
                 Type.STRING -> stringType
-                Type.CLASS -> error("Arrays of class literals are not supported yet") // TODO: support arrays of class literals
+                Type.CLASS -> kClass.defaultType
                 Type.ENUM -> resolveClass(nameResolver.getClassId(value.classId)).defaultType
                 Type.ANNOTATION -> resolveClass(nameResolver.getClassId(value.annotation.id)).defaultType
                 Type.ARRAY -> error("Array of arrays is impossible")
