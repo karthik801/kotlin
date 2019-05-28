@@ -8,6 +8,7 @@ package org.jetbrains.kotlin.backend.jvm.lower
 import org.jetbrains.kotlin.backend.common.FileLoweringPass
 import org.jetbrains.kotlin.backend.common.IrElementTransformerVoidWithContext
 import org.jetbrains.kotlin.backend.common.ScopeWithIr
+import org.jetbrains.kotlin.backend.common.ir.copyTo
 import org.jetbrains.kotlin.backend.common.ir.copyTypeParametersFrom
 import org.jetbrains.kotlin.backend.common.ir.copyValueParametersToStatic
 import org.jetbrains.kotlin.backend.common.ir.isInlineParameter
@@ -18,6 +19,7 @@ import org.jetbrains.kotlin.backend.jvm.JvmBackendContext
 import org.jetbrains.kotlin.backend.jvm.JvmLoweredDeclarationOrigin
 import org.jetbrains.kotlin.backend.jvm.codegen.isInlineFunctionCall
 import org.jetbrains.kotlin.backend.jvm.codegen.isInlineIrExpression
+import org.jetbrains.kotlin.codegen.AsmUtil.BOUND_REFERENCE_RECEIVER
 import org.jetbrains.kotlin.descriptors.Visibilities
 import org.jetbrains.kotlin.ir.builders.*
 import org.jetbrains.kotlin.ir.builders.declarations.addValueParameter
@@ -25,6 +27,7 @@ import org.jetbrains.kotlin.ir.builders.declarations.buildFun
 import org.jetbrains.kotlin.ir.declarations.IrConstructor
 import org.jetbrains.kotlin.ir.declarations.IrFile
 import org.jetbrains.kotlin.ir.declarations.IrFunction
+import org.jetbrains.kotlin.ir.declarations.IrVariable
 import org.jetbrains.kotlin.ir.expressions.*
 import org.jetbrains.kotlin.ir.expressions.impl.IrFunctionReferenceImpl
 import org.jetbrains.kotlin.ir.util.defaultType
@@ -130,7 +133,13 @@ internal class InlineCallableReferenceToLambdaPhase(val context: JvmBackendConte
         val irBuilder =
             context.createIrBuilder(scope.scope.scopeOwnerSymbol, expression.startOffset, expression.endOffset)
 
+        val boundReceiver = expression.dispatchReceiver ?: expression.extensionReceiver
         return irBuilder.irBlock(expression, IrStatementOrigin.LAMBDA) {
+            lateinit var variableForBoundReceiver: IrVariable
+            if (boundReceiver != null) {
+                variableForBoundReceiver = createTmpVariable(boundReceiver, BOUND_REFERENCE_RECEIVER)
+            }
+
             val newLambda = buildFun {
                 setSourceRange(expression)
                 origin = JvmLoweredDeclarationOrigin.FUNCTION_REFERENCE_IMPL
@@ -143,7 +152,19 @@ internal class InlineCallableReferenceToLambdaPhase(val context: JvmBackendConte
                     copyTypeParametersFrom(referencedFunction.parentAsClass)
                 }
                 copyTypeParametersFrom(referencedFunction)
-                copyValueParametersToStatic(referencedFunction, origin)
+                if (boundReceiver == null) {
+                    copyValueParametersToStatic(referencedFunction, origin)
+                } else {
+                    for (oldValueParameter in referencedFunction.valueParameters) {
+                        valueParameters.add(
+                            oldValueParameter.copyTo(
+                                this,
+                                origin = origin,
+                                index = oldValueParameter.index
+                            )
+                        )
+                    }
+                }
                 val lambdaBodyBuilder = this@InlineCallableReferenceToLambdaPhase.context.createIrBuilder(this.symbol)
                 body = lambdaBodyBuilder.irBlockBody(startOffset, endOffset) {
                     var shift = 0
@@ -155,11 +176,14 @@ internal class InlineCallableReferenceToLambdaPhase(val context: JvmBackendConte
                             }
 
                             referencedFunction.dispatchReceiverParameter?.let {
-                                call.dispatchReceiver = irGet(valueParameters[shift++])
+                                call.dispatchReceiver =
+                                    irGet(if (expression.dispatchReceiver != null) variableForBoundReceiver else valueParameters[shift++])
                             }
                             referencedFunction.extensionReceiverParameter?.let {
-                                call.extensionReceiver = irGet(valueParameters[shift++])
+                                call.extensionReceiver =
+                                    irGet(if (expression.extensionReceiver != null) variableForBoundReceiver else valueParameters[shift++])
                             }
+
                             for (it in referencedFunction.valueParameters.indices) {
                                 call.putValueArgument(it, irGet(valueParameters[shift++]))
                             }
